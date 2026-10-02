@@ -1,0 +1,1076 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Predictive Maintenance Dashboard | 3-Phase Induction Motor</title>
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class'
+    }
+  </script>
+  <!-- Chart.js CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Rajdhani:wght@500;600;700&display=swap');
+    
+    body {
+      font-family: 'Rajdhani', sans-serif;
+      transition: background-color 0.3s ease, color 0.3s ease;
+    }
+    .digital-font {
+      font-family: 'Orbitron', monospace;
+    }
+
+    /* Dark Theme Styles */
+    html.dark body {
+      background-color: #0b0f19;
+      color: #e2e8f0;
+    }
+    html.dark .glass-card {
+      background: rgba(17, 24, 39, 0.85);
+      backdrop-filter: blur(12px);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.45);
+    }
+    html.dark .sub-card {
+      background: rgba(15, 23, 42, 0.7);
+      border: 1px solid rgba(255, 255, 255, 0.05);
+    }
+    html.dark .text-heading {
+      color: #ffffff;
+    }
+    html.dark .text-muted {
+      color: #94a3b8;
+    }
+
+    /* Light Theme Styles */
+    html.light body {
+      background-color: #f1f5f9;
+      color: #1e293b;
+    }
+    html.light .glass-card {
+      background: rgba(255, 255, 255, 0.95);
+      backdrop-filter: blur(12px);
+      border: 1px solid rgba(226, 232, 240, 0.9);
+      box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.06), 0 8px 10px -6px rgba(0, 0, 0, 0.04);
+    }
+    html.light .sub-card {
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+    }
+    html.light .text-heading {
+      color: #0f172a;
+    }
+    html.light .text-muted {
+      color: #64748b;
+    }
+  </style>
+</head>
+<body class="min-h-screen p-4 md:p-6 flex flex-col justify-between">
+
+  <!-- TOP HEADER -->
+  <header class="glass-card rounded-2xl p-4 mb-6 flex flex-wrap items-center justify-between border-t-2 border-emerald-500 transition-colors">
+    <div class="flex items-center space-x-4">
+      <div class="p-3 bg-emerald-500/10 rounded-xl border border-emerald-500/30 text-emerald-500">
+        <i data-lucide="activity" class="w-8 h-8"></i>
+      </div>
+      <div>
+        <h1 class="text-xl md:text-2xl font-bold tracking-wider uppercase digital-font text-heading">
+          ML Based Predictive Maintenance Dashboard
+        </h1>
+        <p class="text-xs md:text-sm text-muted">
+          Real-Time Cloud IoT Feed (ThingSpeak API) & Machine Learning Analytics | SCET Surat
+        </p>
+      </div>
+    </div>
+
+    <!-- Right Controls: Status, Theme Toggle & Settings -->
+    <div class="flex items-center space-x-3 mt-4 md:mt-0">
+      
+      <!-- Live API Connection Indicator -->
+      <div id="cloud-indicator" class="flex items-center space-x-2 px-3 py-1.5 rounded-full bg-emerald-950/20 border border-emerald-500/40 text-emerald-600 dark:text-emerald-400 text-xs font-semibold">
+        <span id="cloud-ping" class="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-ping"></span>
+        <span id="cloud-label">CONNECTING TO API...</span>
+      </div>
+
+      <!-- DARK / LIGHT MODE TOGGLE BUTTON -->
+      <button id="theme-toggle-btn" onclick="toggleTheme()" class="px-3.5 py-2 bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 text-sm font-semibold rounded-xl border border-slate-300 dark:border-slate-700 flex items-center space-x-2 transition shadow-sm cursor-pointer">
+        <span id="theme-icon"><i data-lucide="sun" class="w-4 h-4 text-amber-500"></i></span>
+        <span id="theme-text">Light</span>
+      </button>
+
+      <!-- Settings Button -->
+      <button onclick="toggleConfigModal()" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-semibold rounded-xl shadow flex items-center space-x-2 transition cursor-pointer">
+        <i data-lucide="key" class="w-4 h-4"></i>
+        <span>API Settings</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- API ALERT BANNER (If Channel ID not set) -->
+  <div id="api-alert-banner" class="hidden mb-6 p-4 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-600 dark:text-amber-400 flex items-center justify-between">
+    <div class="flex items-center space-x-3">
+      <i data-lucide="alert-triangle" class="w-5 h-5 flex-shrink-0"></i>
+      <span class="text-sm">ThingSpeak Channel ID is not configured yet. Click <b>API Settings</b> to enter your Channel ID and Read API Key.</span>
+    </div>
+    <button onclick="toggleConfigModal()" class="px-3 py-1 bg-amber-500 text-white text-xs font-bold rounded-lg uppercase tracking-wider">Set Credentials</button>
+  </div>
+
+  <!-- MAIN TELEMETRY GRID -->
+  <main class="space-y-6 flex-1">
+    
+    <!-- 4 CORE SENSOR KPI CARDS (Real API Data from ThingSpeak) -->
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      
+      <!-- 1. VIBRATION RMS -->
+      <div class="glass-card rounded-2xl p-5 relative overflow-hidden border-l-4 border-cyan-500">
+        <div class="flex justify-between items-start mb-2">
+          <span class="text-xs font-semibold tracking-wider text-muted uppercase">Vibration (RMS)</span>
+          <i data-lucide="waves" class="w-5 h-5 text-cyan-500"></i>
+        </div>
+        <div class="flex items-baseline space-x-2">
+          <span id="val-vib-rms" class="text-4xl font-bold digital-font text-heading">--</span>
+          <span class="text-sm font-semibold text-muted">mm/s</span>
+        </div>
+        <div class="mt-3 flex justify-between text-xs text-muted">
+          <span>Ax: <b id="val-ax" class="text-heading">--</b></span>
+          <span>Ay: <b id="val-ay" class="text-heading">--</b></span>
+          <span>Az: <b id="val-az" class="text-heading">--</b></span>
+        </div>
+        <div class="text-[10px] text-cyan-500 mt-1 font-semibold">Sensor: MPU6050 (3-Axis Accelerometer)</div>
+      </div>
+
+      <!-- 2. TEMPERATURE -->
+      <div class="glass-card rounded-2xl p-5 relative overflow-hidden border-l-4 border-amber-500">
+        <div class="flex justify-between items-start mb-2">
+          <span class="text-xs font-semibold tracking-wider text-muted uppercase">Temperature</span>
+          <i data-lucide="thermometer" class="w-5 h-5 text-amber-500"></i>
+        </div>
+        <div class="flex items-baseline space-x-2">
+          <span id="val-temp" class="text-4xl font-bold digital-font text-heading">--</span>
+          <span class="text-sm font-semibold text-muted">°C</span>
+        </div>
+        <div class="mt-3 w-full bg-slate-200 dark:bg-slate-800 h-1.5 rounded-full overflow-hidden">
+          <div id="bar-temp" class="bg-amber-500 h-full transition-all duration-500" style="width: 0%;"></div>
+        </div>
+        <div class="text-[10px] text-amber-500 mt-2 font-semibold">Sensor: DHT11 Temperature</div>
+      </div>
+
+      <!-- 3. CURRENT -->
+      <div class="glass-card rounded-2xl p-5 relative overflow-hidden border-l-4 border-indigo-500">
+        <div class="flex justify-between items-start mb-2">
+          <span class="text-xs font-semibold tracking-wider text-muted uppercase">Phase Current</span>
+          <i data-lucide="zap" class="w-5 h-5 text-indigo-500"></i>
+        </div>
+        <div class="flex items-baseline space-x-2">
+          <span id="val-current" class="text-4xl font-bold digital-font text-heading">--</span>
+          <span class="text-sm font-semibold text-muted">A</span>
+        </div>
+        <div class="mt-3 w-full bg-slate-200 dark:bg-slate-800 h-1.5 rounded-full overflow-hidden">
+          <div id="bar-current" class="bg-indigo-500 h-full transition-all duration-500" style="width: 0%;"></div>
+        </div>
+        <div class="text-[10px] text-indigo-500 mt-2 font-semibold">Sensor: ACS71 Current Sensor</div>
+      </div>
+
+      <!-- 4. SPEED (RPM) -->
+      <div class="glass-card rounded-2xl p-5 relative overflow-hidden border-l-4 border-purple-500">
+        <div class="flex justify-between items-start mb-2">
+          <span class="text-xs font-semibold tracking-wider text-muted uppercase">Speed</span>
+          <i data-lucide="gauge" class="w-5 h-5 text-purple-500"></i>
+        </div>
+        <div class="flex items-baseline space-x-2">
+          <span id="val-rpm" class="text-4xl font-bold digital-font text-heading">--</span>
+          <span class="text-sm font-semibold text-muted">RPM</span>
+        </div>
+        <div class="mt-3 flex justify-between text-xs text-muted">
+          <span>Rated: <b class="text-heading">2700 - 3100 RPM</b></span>
+          <span id="val-slip" class="text-purple-400 font-semibold">Slip: --%</span>
+        </div>
+        <div class="text-[10px] text-purple-500 mt-1 font-semibold">Sensor: Proximity </div>
+      </div>
+
+    </div>
+
+    <!-- PREDICTION & RPM GRAPH SECTION -->
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+
+      <!-- ML Classification Card (Left 2 Columns) -->
+      <div class="glass-card rounded-2xl p-6 lg:col-span-2 flex flex-col justify-between" id="condition-card">
+        <div>
+          <div class="flex justify-between items-center mb-4">
+            <span class="text-xs uppercase font-bold tracking-widest text-muted">Predictive AI Diagnostic State</span>
+            <div class="flex items-center space-x-2">
+              <span id="decision-source-badge" class="px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">WAITING FOR MODEL DATA</span>
+              <span id="badge-timestamp" class="text-xs text-muted font-mono">Last API Sync: Waiting...</span>
+            </div>
+          </div>
+
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 rounded-xl sub-card">
+            <div>
+              <div class="text-xs text-muted uppercase font-semibold">Model Predicted Condition</div>
+              <div id="predicted-condition" class="text-2xl sm:text-3xl font-black tracking-wide text-emerald-500 digital-font mt-1">
+                WAIT FOR DATA
+              </div>
+            </div>
+            
+            <div class="flex items-center space-x-6">
+              <div class="text-right">
+                <div class="text-xs text-muted uppercase font-semibold">Confidence Rating</div>
+                <div id="val-health-score" class="text-2xl font-bold text-heading digital-font">
+                  --%
+                </div>
+              </div>
+              <div class="p-3 rounded-full bg-emerald-500/20 text-emerald-500" id="condition-icon">
+                <i data-lucide="check-circle" class="w-8 h-8"></i>
+              </div>
+            </div>
+          </div>
+
+          <div class="mt-4 p-3.5 rounded-lg sub-card">
+            <span class="text-xs font-semibold uppercase text-muted block mb-1">Prescriptive Maintenance Advisory</span>
+            <p id="prescriptive-advisory" class="text-sm text-heading">
+              Awaiting model decision from Google Colab. Connect your Colab API URL in Settings or publish predictions to ThingSpeak Field 5.
+            </p>
+          </div>
+        </div>
+
+        <!-- Real-Time Channel Details -->
+        <div class="mt-6 pt-4 border-t border-slate-200 dark:border-slate-800 flex flex-wrap justify-between items-center text-xs text-muted gap-2">
+          <div>Connected Channel: <b id="display-channel-id" class="text-heading font-mono">3461983</b></div>
+          <div>Polling Frequency: <b class="text-heading">Every 5 Seconds</b></div>
+          <div>ML Diagnostic: <b id="display-ml-engine" class="text-heading">Google Colab Model</b></div>
+        </div>
+      </div>
+
+      <!-- Speed (RPM) Graph Card (Replaces ML Model Confidence Score - media_1790782267329.png) -->
+      <div class="glass-card rounded-2xl p-5 flex flex-col justify-between">
+        <div>
+          <div class="flex justify-between items-center mb-1">
+            <span class="text-xs uppercase font-bold tracking-widest text-heading">SPEED GRAPH (RPM)</span>
+            <i data-lucide="gauge" class="w-4 h-4 text-purple-500"></i>
+          </div>
+          <div class="flex items-baseline space-x-2">
+            <span id="chart-live-speed" class="text-3xl font-extrabold digital-font text-purple-400">--</span>
+            <span class="text-xs text-muted font-semibold">RPM</span>
+          </div>
+        </div>
+
+        <div class="h-44 w-full my-2">
+          <canvas id="speedChart"></canvas>
+        </div>
+
+        <div class="w-full sub-card p-3 rounded-xl flex justify-around text-xs">
+          <div>
+            <span class="text-muted block">Slip</span>
+            <span id="speed-slip-val" class="font-bold text-purple-400">--%</span>
+          </div>
+          <div>
+            <span class="text-muted block">Rated Range</span>
+            <span class="font-bold text-heading">2700 - 3000 RPM</span>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- REAL-TIME CHARTS SECTION -->
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <!-- Vibration Trend -->
+      <div class="glass-card rounded-2xl p-5">
+        <div class="flex justify-between items-center mb-3">
+          <span class="text-xs uppercase font-bold tracking-wider text-heading">Live Vibration RMS Trend</span>
+          <i data-lucide="line-chart" class="w-4 h-4 text-cyan-500"></i>
+        </div>
+        <div class="h-56">
+          <canvas id="vibChart"></canvas>
+        </div>
+      </div>
+
+      <!-- Temperature & Current Chart -->
+      <div class="glass-card rounded-2xl p-5">
+        <div class="flex justify-between items-center mb-3">
+          <span class="text-xs uppercase font-bold tracking-wider text-heading">Thermal (°C) & Phase Current (A) Trend</span>
+          <i data-lucide="trending-up" class="w-4 h-4 text-amber-500"></i>
+        </div>
+        <div class="h-56">
+          <canvas id="tempCurrentChart"></canvas>
+        </div>
+      </div>
+    </div>
+
+  </main>
+
+  <!-- FOOTER -->
+  <footer class="mt-6 text-center text-xs text-muted">
+    Predictive Maintenance Framework for 3-Phase Induction Motor | SCET ECE Department | 2026-2027
+  </footer>
+
+  <!-- SETTINGS MODAL (Matching User Image media_1790781467352.png) -->
+  <div id="config-modal" class="fixed inset-0 bg-black/60 backdrop-blur-sm hidden flex items-center justify-center p-4 z-50">
+    <div class="glass-card max-w-md w-full rounded-2xl p-6 border border-slate-300 dark:border-slate-700 shadow-2xl">
+      <div class="flex justify-between items-center mb-4">
+        <h2 class="text-lg font-bold text-heading flex items-center space-x-2">
+          <i data-lucide="key" class="w-5 h-5 text-emerald-500"></i>
+          <span>ThingSpeak API Credentials</span>
+        </h2>
+        <button onclick="toggleConfigModal()" class="text-muted hover:text-heading text-lg font-bold cursor-pointer">✕</button>
+      </div>
+
+      <div class="space-y-4">
+        <div>
+          <label class="block text-xs font-bold text-muted uppercase mb-1">THINGSPEAK CHANNEL ID <span class="text-rose-500">*</span></label>
+          <input type="text" id="cfg-channel" value="3461983" placeholder="3461983" class="w-full bg-slate-100 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg p-2.5 text-sm text-heading focus:outline-none focus:border-emerald-500 font-mono">
+          <p class="text-[11px] text-muted mt-1">Found in your ThingSpeak Channel Settings.</p>
+        </div>
+
+        <div>
+          <label class="block text-xs font-bold text-muted uppercase mb-1">READ API KEY</label>
+          <input type="text" id="cfg-key" value="CE38Q1UDCI4AWI3D" placeholder="CE38Q1UDCI4AWI3D" class="w-full bg-slate-100 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg p-2.5 text-sm text-heading focus:outline-none focus:border-emerald-500 font-mono">
+          <p class="text-[11px] text-muted mt-1">Leave empty if your channel is public.</p>
+        </div>
+
+        <div>
+          <label class="block text-xs font-bold text-muted uppercase mb-1">GOOGLE COLAB / EXTERNAL MODEL API URL (OPTIONAL)</label>
+          <input type="text" id="cfg-dropbox" value="" placeholder="https://xxxx.ngrok-free.app/predict" class="w-full bg-slate-100 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg p-2.5 text-sm text-heading focus:outline-none focus:border-emerald-500 font-mono">
+          <p class="text-[11px] text-muted mt-1">Paste Colab ngrok URL (or leave blank to use ThingSpeak Field 5 / Edge AI).</p>
+        </div>
+      </div>
+
+      <div class="mt-6 flex justify-end space-x-3">
+        <button onclick="toggleConfigModal()" class="px-4 py-2 bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-heading text-sm font-semibold rounded-lg cursor-pointer">Cancel</button>
+        <button onclick="saveConfig()" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-semibold rounded-lg shadow cursor-pointer">Save & Connect API</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- JAVASCRIPT LOGIC -->
+  <script>
+    lucide.createIcons();
+
+    // ----------------- STORAGE SAFE HELPERS -----------------
+    function getStoredItem(key, def) {
+      try {
+        const val = localStorage.getItem(key);
+        if (!val || !val.trim()) return def;
+        return val.trim();
+      } catch (e) {
+        return def;
+      }
+    }
+
+    function setStoredItem(key, val) {
+      try {
+        localStorage.setItem(key, val);
+      } catch (e) {
+        console.warn("Storage warning:", e);
+      }
+    }
+
+    // Defensive DOM helpers so missing elements never crash scripts
+    function setText(id, text) {
+      const el = document.getElementById(id);
+      if (el) el.textContent = text;
+    }
+    function setWidth(id, width) {
+      const el = document.getElementById(id);
+      if (el) el.style.width = width;
+    }
+
+    // ----------------- THEME MANAGEMENT (Dark / Light) -----------------
+    let currentTheme = getStoredItem('pm_theme', 'dark');
+
+    function applyTheme(theme) {
+      currentTheme = theme;
+      setStoredItem('pm_theme', theme);
+      const htmlEl = document.documentElement;
+      const themeText = document.getElementById('theme-text');
+      const themeIcon = document.getElementById('theme-icon');
+
+      if (theme === 'light') {
+        htmlEl.classList.remove('dark');
+        htmlEl.classList.add('light');
+        if (themeText) themeText.textContent = 'Dark';
+        if (themeIcon) themeIcon.innerHTML = '<i data-lucide="moon" class="w-4 h-4 text-indigo-600"></i>';
+      } else {
+        htmlEl.classList.remove('light');
+        htmlEl.classList.add('dark');
+        if (themeText) themeText.textContent = 'Light';
+        if (themeIcon) themeIcon.innerHTML = '<i data-lucide="sun" class="w-4 h-4 text-amber-400"></i>';
+      }
+      if (window.lucide) lucide.createIcons();
+      updateChartColors(theme);
+    }
+
+    function toggleTheme() {
+      applyTheme(currentTheme === 'dark' ? 'light' : 'dark');
+    }
+
+    // ----------------- API CREDENTIALS -----------------
+    let apiConfig = {
+      channelId: getStoredItem('ts_channel_id', '3461983'),
+      readApiKey: getStoredItem('ts_read_api_key', 'CE38Q1UDCI4AWI3D'),
+      dropboxUrl: getStoredItem('ts_dropbox_url', '')
+    };
+
+    if (apiConfig.channelId) {
+      const chInput = document.getElementById('cfg-channel');
+      if (chInput) chInput.value = apiConfig.channelId;
+      const chDisp = document.getElementById('display-channel-id');
+      if (chDisp) chDisp.textContent = apiConfig.channelId;
+    }
+    if (apiConfig.readApiKey) {
+      const keyInput = document.getElementById('cfg-key');
+      if (keyInput) keyInput.value = apiConfig.readApiKey;
+    }
+    if (apiConfig.dropboxUrl) {
+      const dbInput = document.getElementById('cfg-dropbox');
+      if (dbInput) dbInput.value = apiConfig.dropboxUrl;
+    }
+
+    // Dashboard labels for the 5-class Random Forest model.
+    // Native model classes are mapped to the labels used by this existing UI.
+    const FAULTS = {
+      0: { title: "NORMAL", color: "#10b981", advisory: "Motor operating within optimal mechanical and electrical limits. No maintenance required.", health: 96 },
+      1: { title: "OVERHEATING", color: "#f97316", advisory: "WARNING: Elevated motor temperature detected. Inspect cooling and operating load.", health: 55 },
+      2: { title: "VIBRATION FAULT", color: "#eab308", advisory: "ALERT: Abnormal vibration detected. Inspect bearings, alignment, mounting, and mechanical condition.", health: 45 },
+      3: { title: "LEAKAGE CURRENT", color: "#dc2626", advisory: "CRITICAL: Abnormal current condition detected. Inspect electrical connections, insulation, and load.", health: 30 },
+      4: { title: "MECHANICAL STALL", color: "#ef4444", advisory: "CRITICAL: Motor speed is inconsistent with normal operation. Inspect for mechanical obstruction, load, or drive problems.", health: 25 }
+    };
+
+    const MODEL_CLASS_MAP = {
+      "Normal": 0,
+      "Overheating": 1,
+      "Vibration_Fault": 2,
+      "Overcurrent": 3,
+      "Mechanical_Stall": 4
+    };
+
+    // ----------------- CHART.JS INITIALIZATION -----------------
+    const ctxVib = document.getElementById('vibChart').getContext('2d');
+    const vibChart = new Chart(ctxVib, {
+      type: 'line',
+      data: {
+        labels: [],
+        datasets: [{
+          label: 'Vibration RMS (mm/s)',
+          data: [],
+          borderColor: '#06b6d4',
+          backgroundColor: 'rgba(6, 182, 212, 0.15)',
+          fill: true,
+          tension: 0.3,
+          pointRadius: 2.5
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        scales: {
+          x: { grid: { color: 'rgba(150,150,150,0.1)' }, ticks: { color: '#64748b', font: { size: 10 } } },
+          y: { grid: { color: 'rgba(150,150,150,0.1)' }, ticks: { color: '#64748b' }, min: 0 }
+        },
+        plugins: { legend: { labels: { color: '#64748b' } } }
+      }
+    });
+
+    const ctxTC = document.getElementById('tempCurrentChart').getContext('2d');
+    const tempCurrentChart = new Chart(ctxTC, {
+      type: 'line',
+      data: {
+        labels: [],
+        datasets: [
+          {
+            label: 'Temperature (°C)',
+            data: [],
+            borderColor: '#f59e0b',
+            backgroundColor: 'transparent',
+            tension: 0.3,
+            yAxisID: 'yTemp',
+            pointRadius: 2.5
+          },
+          {
+            label: 'Current (A)',
+            data: [],
+            borderColor: '#6366f1',
+            backgroundColor: 'transparent',
+            tension: 0.3,
+            yAxisID: 'yCurr',
+            pointRadius: 2.5
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        scales: {
+          x: { grid: { color: 'rgba(150,150,150,0.1)' }, ticks: { color: '#64748b', font: { size: 10 } } },
+          yTemp: {
+            type: 'linear',
+            position: 'left',
+            grid: { color: 'rgba(150,150,150,0.1)' },
+            ticks: { color: '#f59e0b' },
+            min: 20
+          },
+          yCurr: {
+            type: 'linear',
+            position: 'right',
+            grid: { drawOnChartArea: false },
+            ticks: { color: '#6366f1' },
+            min: 0
+          }
+        },
+        plugins: { legend: { labels: { color: '#64748b' } } }
+      }
+    });
+
+    // 3. Speed (RPM) Chart (media_1790782267329.png - solid line without dashes)
+    const ctxSpeed = document.getElementById('speedChart').getContext('2d');
+    const speedChart = new Chart(ctxSpeed, {
+      type: 'line',
+      data: {
+        labels: [],
+        datasets: [{
+          label: 'RPM',
+          data: [],
+          borderColor: '#a855f7',
+          backgroundColor: 'rgba(168, 85, 247, 0.15)',
+          fill: true,
+          tension: 0.3,
+          pointRadius: 2.5,
+          borderWidth: 2.5
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        scales: {
+          x: { grid: { color: 'rgba(150,150,150,0.1)' }, ticks: { color: '#64748b', font: { size: 10 } } },
+          y: { grid: { color: 'rgba(150,150,150,0.1)' }, ticks: { color: '#64748b' } }
+        },
+        plugins: { 
+          legend: { 
+            display: true,
+            labels: { color: '#a855f7', boxWidth: 14 } 
+          } 
+        }
+      }
+    });
+
+    function updateChartColors(theme) {
+      const gridColor = theme === 'light' ? 'rgba(0,0,0,0.06)' : 'rgba(255,255,255,0.06)';
+      const textColor = theme === 'light' ? '#475569' : '#94a3b8';
+
+      [vibChart, tempCurrentChart, speedChart].forEach(c => {
+        if (!c) return;
+        c.options.scales.x.grid.color = gridColor;
+        c.options.scales.x.ticks.color = textColor;
+        if (c.options.scales.y) {
+          c.options.scales.y.grid.color = gridColor;
+          c.options.scales.y.ticks.color = textColor;
+        }
+        if (c.options.scales.yTemp) {
+          c.options.scales.yTemp.grid.color = gridColor;
+        }
+        if (c.options.plugins && c.options.plugins.legend) {
+          c.options.plugins.legend.labels.color = textColor;
+        }
+        c.update();
+      });
+    }
+
+    function toggleConfigModal() {
+      const modal = document.getElementById('config-modal');
+      if (modal) modal.classList.toggle('hidden');
+    }
+
+    function saveConfig() {
+      const chInput = document.getElementById('cfg-channel');
+      const keyInput = document.getElementById('cfg-key');
+      const dbInput = document.getElementById('cfg-dropbox');
+
+      const ch = chInput ? chInput.value.trim() : '3461983';
+      const key = keyInput ? keyInput.value.trim() : '';
+      const dbUrl = dbInput ? dbInput.value.trim() : '';
+
+      if (!ch) {
+        alert("Please enter a valid ThingSpeak Channel ID.");
+        return;
+      }
+
+      apiConfig.channelId = ch;
+      apiConfig.readApiKey = key;
+      apiConfig.dropboxUrl = dbUrl;
+
+      setStoredItem('ts_channel_id', ch);
+      setStoredItem('ts_read_api_key', key);
+      setStoredItem('ts_dropbox_url', dbUrl);
+
+      const chDisp = document.getElementById('display-channel-id');
+      if (chDisp) chDisp.textContent = ch;
+
+      const banner = document.getElementById('api-alert-banner');
+      if (banner) banner.classList.add('hidden');
+
+      toggleConfigModal();
+      lastProcessedEntryId = null;
+      setText('cloud-label', 'CONNECTING API...');
+      loadHistoricalFeeds(ch, key, 25).then(success => {
+        if (!success) fetchThingSpeakData();
+      });
+    }
+
+    // ----------------- ML PREDICTIVE LOGIC -----------------
+    function evaluateModel(telemetry) {
+      const t = telemetry.temperature;
+      const c = telemetry.current;
+      const r = telemetry.rpm;
+      const v = telemetry.vib_rms;
+
+      let predId = 0;
+      let conf = 95.0;
+
+      // Real physics and multi-sensor fault boundary decision tree (ISO 10816-3 mm/s RMS)
+      if (t > 70.0) {
+        predId = 2; // Overheating
+        conf = 94.2;
+      } else if (c > 3.4) {
+        predId = 4; // Phase Overcurrent
+        conf = 96.0;
+      } else if (v > 4.5) {
+        predId = 1; // Bearing Degradation (Critical Vibration ISO Zone D)
+        conf = 95.5;
+      } else if (v > 2.8 || (v > 1.8 && r < 1420)) {
+        predId = 3; // Rotor Imbalance / Misalignment (ISO Zone C)
+        conf = 92.8;
+      } else {
+        predId = 0; // Normal
+        conf = 97.4;
+      }
+
+      const faultMeta = FAULTS[predId];
+      return {
+        class_id: predId,
+        condition_name: faultMeta.title,
+        color: faultMeta.color,
+        advisory: faultMeta.advisory,
+        confidence: conf,
+        health_score: faultMeta.health
+      };
+    }
+
+    // ----------------- HIGH-RESILIENCE NETWORK FETCHERS -----------------
+    function fetchWithXHR(url) {
+      return new Promise((resolve, reject) => {
+        try {
+          const xhr = new XMLHttpRequest();
+          xhr.open("GET", url, true);
+          xhr.timeout = 7000;
+          xhr.onload = function() {
+            if (xhr.status >= 200 && xhr.status < 300) {
+              try {
+                resolve(JSON.parse(xhr.responseText));
+              } catch(e) {
+                reject(e);
+              }
+            } else {
+              reject(new Error("HTTP " + xhr.status));
+            }
+          };
+          xhr.onerror = function() { reject(new Error("Network Error")); };
+          xhr.ontimeout = function() { reject(new Error("Timeout")); };
+          xhr.send();
+        } catch(e) {
+          reject(e);
+        }
+      });
+    }
+
+    async function safeFetchJson(url) {
+      try {
+        const resp = await fetch(url);
+        if (resp.ok) {
+          return await resp.json();
+        }
+      } catch (fetchErr) {
+        console.warn("fetch() warning, attempting XMLHttpRequest fallback...", fetchErr);
+      }
+      try {
+        return await fetchWithXHR(url);
+      } catch (xhrErr) {
+        console.warn("XMLHttpRequest also encountered notice:", xhrErr);
+        return null;
+      }
+    }
+
+    // ----------------- TELEMETRY PARSER -----------------
+    function parseFeedTelemetry(feed) {
+      if (!feed) return null;
+      const f1 = parseFloat(feed.field1) || 0.0;
+      const f2 = parseFloat(feed.field2) || 0.0;
+      const f3 = parseFloat(feed.field3) || 0.0;
+      const f4 = parseFloat(feed.field4) || 0.0;
+
+      let temp = 0.0, vib_rms = 0.0, current = 0.0, rpm = 0.0;
+      if (f4 > 100 || f3 < 20) {
+        // Standard mapping: Field 1 = Temp, Field 2 = Vibration, Field 3 = Current, Field 4 = RPM
+        temp = f1;
+        vib_rms = f2;
+        current = f3;
+        rpm = f4;
+      } else {
+        // Alternative mapping: Field 1 = Temp, Field 2 = Current, Field 3 = RPM, Field 4 = Vibration
+        temp = f1;
+        current = f2;
+        rpm = f3;
+        vib_rms = f4;
+      }
+
+      const comp = vib_rms > 0 ? (vib_rms / Math.sqrt(3)) : 0.0;
+      const dateObj = feed.created_at ? new Date(feed.created_at) : new Date();
+      const timeFormatted = dateObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+
+      return {
+        temperature: Number(temp.toFixed(1)),
+        current: Number(current.toFixed(2)),
+        rpm: Number(rpm.toFixed(0)),
+        vib_x: Number(comp.toFixed(3)),
+        vib_y: Number(comp.toFixed(3)),
+        vib_z: Number(comp.toFixed(3)),
+        vib_rms: Number(vib_rms.toFixed(3)),
+        timestamp: timeFormatted,
+        entry_id: feed.entry_id,
+        created_at: feed.created_at,
+        field5: feed.field5,
+        field6: feed.field6
+      };
+    }
+
+    // ----------------- HISTORICAL TELEMETRY LOADER -----------------
+    let lastProcessedEntryId = null;
+
+    async function loadHistoricalFeeds(ch, key, count = 25) {
+      const ts = Date.now();
+      let feeds = null;
+
+      // Strategy 1: Fetch with key if provided
+      if (key && key.trim()) {
+        const urlWithKey = `https://api.thingspeak.com/channels/${encodeURIComponent(ch)}/feeds.json?results=${count}&_t=${ts}&api_key=${encodeURIComponent(key.trim())}`;
+        const data1 = await safeFetchJson(urlWithKey);
+        if (data1 && Array.isArray(data1.feeds) && data1.feeds.length > 0) {
+          feeds = data1.feeds;
+        }
+      }
+
+      // Strategy 2: Fetch without key (works for public channels)
+      if (!feeds) {
+        const urlNoKey = `https://api.thingspeak.com/channels/${encodeURIComponent(ch)}/feeds.json?results=${count}&_t=${ts}`;
+        const data2 = await safeFetchJson(urlNoKey);
+        if (data2 && Array.isArray(data2.feeds) && data2.feeds.length > 0) {
+          feeds = data2.feeds;
+        }
+      }
+
+      if (!feeds || feeds.length === 0) {
+        return false;
+      }
+
+      // Clear existing chart data
+      vibChart.data.labels = [];
+      vibChart.data.datasets[0].data = [];
+
+      tempCurrentChart.data.labels = [];
+      tempCurrentChart.data.datasets[0].data = [];
+      tempCurrentChart.data.datasets[1].data = [];
+
+      speedChart.data.labels = [];
+      speedChart.data.datasets[0].data = [];
+
+      // Populate all charts with chronological historical points
+      let latestTelemetry = null;
+      let latestFeed = null;
+
+      for (const feed of feeds) {
+        const t = parseFeedTelemetry(feed);
+        if (!t) continue;
+
+        vibChart.data.labels.push(t.timestamp);
+        vibChart.data.datasets[0].data.push(t.vib_rms);
+
+        tempCurrentChart.data.labels.push(t.timestamp);
+        tempCurrentChart.data.datasets[0].data.push(t.temperature);
+        tempCurrentChart.data.datasets[1].data.push(t.current);
+
+        speedChart.data.labels.push(t.timestamp);
+        speedChart.data.datasets[0].data.push(t.rpm);
+
+        latestTelemetry = t;
+        latestFeed = feed;
+      }
+
+      vibChart.update();
+      tempCurrentChart.update();
+      speedChart.update();
+
+      if (latestTelemetry && latestFeed) {
+        lastProcessedEntryId = latestTelemetry.entry_id;
+        await processTelemetryDecision(latestTelemetry, latestFeed, false);
+      }
+
+      setText('cloud-label', 'THINGSPEAK API LIVE');
+      const ping = document.getElementById('cloud-ping');
+      if (ping) ping.className = 'w-2.5 h-2.5 rounded-full bg-emerald-500 animate-ping';
+
+      return true;
+    }
+
+    // ----------------- MULTI-STRATEGY TELEMETRY FETCHER -----------------
+    async function queryThingSpeak(ch, key) {
+      const ts = Date.now();
+      
+      // Strategy 1: If key provided, attempt fetch with api_key
+      if (key && key.trim()) {
+        const urlWithKey = `https://api.thingspeak.com/channels/${encodeURIComponent(ch)}/feeds/last.json?_t=${ts}&api_key=${encodeURIComponent(key.trim())}`;
+        const feed1 = await safeFetchJson(urlWithKey);
+        if (feed1 && feed1.created_at) return feed1;
+      }
+
+      // Strategy 2: Fetch without key (works for public channels or when key is optional)
+      const urlNoKey = `https://api.thingspeak.com/channels/${encodeURIComponent(ch)}/feeds/last.json?_t=${ts}`;
+      const feed2 = await safeFetchJson(urlNoKey);
+      if (feed2 && feed2.created_at) return feed2;
+
+      // Strategy 3: Try feeds.json?results=1 endpoint
+      let urlFeeds = `https://api.thingspeak.com/channels/${encodeURIComponent(ch)}/feeds.json?results=1&_t=${ts}`;
+      if (key && key.trim()) {
+        urlFeeds += `&api_key=${encodeURIComponent(key.trim())}`;
+      }
+      const data3 = await safeFetchJson(urlFeeds);
+      if (data3 && data3.feeds && data3.feeds.length > 0) {
+        return data3.feeds[data3.feeds.length - 1];
+      }
+
+      return null;
+    }
+
+    // ----------------- ONLY FETCH REAL API DATA -----------------
+    async function fetchThingSpeakData() {
+      const ch = apiConfig.channelId;
+      const key = apiConfig.readApiKey;
+
+      if (!ch) {
+        const banner = document.getElementById('api-alert-banner');
+        if (banner) banner.classList.remove('hidden');
+        setText('cloud-label', 'API NOT CONFIGURED');
+        const ping = document.getElementById('cloud-ping');
+        if (ping) ping.className = 'w-2.5 h-2.5 rounded-full bg-amber-500';
+        return;
+      }
+
+      const banner = document.getElementById('api-alert-banner');
+      if (banner) banner.classList.add('hidden');
+
+      try {
+        const feed = await queryThingSpeak(ch, key);
+        if (!feed || !feed.created_at) {
+          throw new Error("No telemetry feeds recorded yet in channel");
+        }
+
+        const telemetry = parseFeedTelemetry(feed);
+        if (!telemetry) return;
+
+        const isNewEntry = (lastProcessedEntryId === null) || (telemetry.entry_id !== lastProcessedEntryId);
+
+        if (isNewEntry) {
+          lastProcessedEntryId = telemetry.entry_id;
+          await processTelemetryDecision(telemetry, feed, true);
+        } else {
+          // Keep timestamp fresh while waiting for next 15s ThingSpeak publish
+          setText('badge-timestamp', 'Last API Sync: ' + telemetry.timestamp);
+        }
+
+        setText('cloud-label', 'THINGSPEAK API LIVE');
+        const ping = document.getElementById('cloud-ping');
+        if (ping) ping.className = 'w-2.5 h-2.5 rounded-full bg-emerald-500 animate-ping';
+      } catch (err) {
+        console.warn("ThingSpeak Fetch Warning:", err);
+        setText('cloud-label', 'API RETRYING...');
+        const ping = document.getElementById('cloud-ping');
+        if (ping) ping.className = 'w-2.5 h-2.5 rounded-full bg-amber-500';
+      }
+    }
+
+    async function processTelemetryDecision(telemetry, feed, appendToChart = true) {
+      // Primary ML source: Flask Random Forest API (/api/latest).
+      // The existing dashboard design is unchanged; only the prediction source is replaced.
+      let prediction = {
+        is_waiting: true,
+        condition_name: 'WAIT FOR DATA',
+        color: '#10b981',
+        advisory: 'Awaiting Random Forest model decision.',
+        confidence: null,
+        health_score: null
+      };
+      let decisionSource = 'WAITING FOR MODEL DATA';
+      let badgeClass = 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30';
+
+      try {
+        // Same-origin when the dashboard is served by Flask.
+        const mlResp = await safeFetchJson('/api/latest?_t=' + Date.now());
+        if (mlResp && mlResp.ok && mlResp.model_class) {
+          const classId = MODEL_CLASS_MAP[mlResp.model_class];
+          if (classId !== undefined) {
+            const faultMeta = FAULTS[classId];
+            prediction = {
+              is_waiting: false,
+              class_id: classId,
+              condition_name: mlResp.condition || faultMeta.title,
+              color: faultMeta.color,
+              advisory: faultMeta.advisory,
+              confidence: mlResp.confidence !== undefined ? parseFloat(mlResp.confidence) : null,
+              health_score: faultMeta.health
+            };
+            decisionSource = 'RANDOM FOREST ML API';
+            badgeClass = 'bg-blue-500/10 text-blue-400 border-blue-500/30';
+
+            // Use the API's latest telemetry for the UI values so the displayed
+            // readings correspond exactly to the values classified by the model.
+            if (mlResp.timestamp) {
+              telemetry.timestamp = mlResp.timestamp;
+            }
+            if (mlResp.temperature !== undefined) telemetry.temperature = Number(mlResp.temperature);
+            if (mlResp.current !== undefined) telemetry.current = Number(mlResp.current);
+            if (mlResp.rpm !== undefined) telemetry.rpm = Number(mlResp.rpm);
+            if (mlResp.vibration !== undefined) telemetry.vib_rms = Number(mlResp.vibration);
+          }
+        }
+      } catch (mlErr) {
+        console.warn('Random Forest API warning:', mlErr);
+      }
+
+      // If the Flask API is unavailable, keep the existing telemetry visible but
+      // do not fabricate a model result.
+      const sourceBadge = document.getElementById('decision-source-badge');
+      if (sourceBadge) {
+        sourceBadge.textContent = decisionSource;
+        sourceBadge.className = `px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider border ${badgeClass}`;
+      }
+
+      const mlEngineEl = document.getElementById('display-ml-engine');
+      if (mlEngineEl) {
+        mlEngineEl.textContent = prediction.is_waiting ? 'Random Forest ML API' : decisionSource;
+      }
+
+      updateUI(telemetry, prediction);
+
+      if (appendToChart) {
+        updateCharts(telemetry.timestamp, telemetry.vib_rms, telemetry.temperature, telemetry.current, telemetry.rpm);
+      }
+    }
+
+    function updateUI(t, p) {
+      // 1. Sensor Readings
+      setText('val-vib-rms', t.vib_rms.toFixed(2));
+      setText('val-ax', t.vib_x.toFixed(2));
+      setText('val-ay', t.vib_y.toFixed(2));
+      setText('val-az', t.vib_z.toFixed(2));
+
+      setText('val-temp', t.temperature.toFixed(1));
+      setWidth('bar-temp', Math.min(100, (t.temperature / 100) * 100) + '%');
+
+      setText('val-current', t.current.toFixed(2));
+      setWidth('bar-current', Math.min(100, (t.current / 6.0) * 100) + '%');
+
+      setText('val-rpm', Math.round(t.rpm));
+      const slip = t.rpm > 0 ? (((1500 - t.rpm) / 1500) * 100).toFixed(1) : '0.0';
+      setText('val-slip', `Slip: ${slip}%`);
+
+      // 2. ML Prediction & Condition
+      const condEl = document.getElementById('predicted-condition');
+      if (condEl) {
+        condEl.textContent = p.condition_name;
+        condEl.style.color = p.color;
+      }
+
+      setText('prescriptive-advisory', p.advisory);
+      setText('badge-timestamp', 'Last API Sync: ' + t.timestamp);
+
+      // 2b. Confidence Rating in diagnostic card
+      // Uses the actual Random Forest predict_proba() confidence returned by Flask.
+      const confidenceEl = document.getElementById('val-health-score');
+      if (confidenceEl) {
+        if (p.confidence !== null && p.confidence !== undefined && !isNaN(p.confidence)) {
+          confidenceEl.textContent = Number(p.confidence).toFixed(1) + '%';
+        } else {
+          confidenceEl.textContent = '--%';
+        }
+      }
+
+      // 2c. Condition Icon in diagnostic card
+      const iconEl = document.getElementById('condition-icon');
+      if (iconEl) {
+        if (p.is_waiting || p.class_id === 0) {
+          iconEl.className = 'p-3 rounded-full bg-emerald-500/20 text-emerald-500';
+          iconEl.innerHTML = '<i data-lucide="check-circle" class="w-8 h-8"></i>';
+        } else {
+          iconEl.className = 'p-3 rounded-full bg-rose-500/20 text-rose-500';
+          iconEl.innerHTML = '<i data-lucide="alert-triangle" class="w-8 h-8"></i>';
+        }
+        if (window.lucide) lucide.createIcons();
+      }
+
+      // 3. Update Speed Graph Card values (media_1790782267329.png)
+      setText('chart-live-speed', Math.round(t.rpm));
+      setText('speed-slip-val', `${slip}%`);
+    }
+
+    function updateCharts(time, vib, temp, curr, rpm) {
+      const MAX_POINTS = 30;
+
+      if (vibChart.data.labels.length >= MAX_POINTS) {
+        vibChart.data.labels.shift();
+        vibChart.data.datasets[0].data.shift();
+      }
+      vibChart.data.labels.push(time);
+      vibChart.data.datasets[0].data.push(vib);
+      vibChart.update();
+
+      if (tempCurrentChart.data.labels.length >= MAX_POINTS) {
+        tempCurrentChart.data.labels.shift();
+        tempCurrentChart.data.datasets[0].data.shift();
+        tempCurrentChart.data.datasets[1].data.shift();
+      }
+      tempCurrentChart.data.labels.push(time);
+      tempCurrentChart.data.datasets[0].data.push(temp);
+      tempCurrentChart.data.datasets[1].data.push(curr);
+      tempCurrentChart.update();
+
+      if (speedChart.data.labels.length >= MAX_POINTS) {
+        speedChart.data.labels.shift();
+        speedChart.data.datasets[0].data.shift();
+      }
+      speedChart.data.labels.push(time);
+      speedChart.data.datasets[0].data.push(rpm);
+      speedChart.update();
+    }
+
+    // Initialize Theme
+    applyTheme(currentTheme);
+
+    // Initial Startup: Load historical telemetry feeds so all graphs are populated immediately, then poll every 5s
+    async function initDashboard() {
+      setText('cloud-label', 'CONNECTING API...');
+      const loaded = await loadHistoricalFeeds(apiConfig.channelId, apiConfig.readApiKey, 25);
+      if (!loaded) {
+        await fetchThingSpeakData();
+      }
+      setInterval(fetchThingSpeakData, 5000);
+    }
+
+    initDashboard();
+  </script>
+</body>
+</html>
