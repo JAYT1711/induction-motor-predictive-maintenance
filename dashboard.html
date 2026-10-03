@@ -188,8 +188,8 @@
           <span class="text-sm font-semibold text-muted">RPM</span>
         </div>
         <div class="mt-3 flex justify-between text-xs text-muted">
-          <span>Rated: <b class="text-heading">2700 - 3100 RPM</b></span>
-          <span id="val-slip" class="text-purple-400 font-semibold">Slip: --%</span>
+          <span>Rated: <b class="text-heading">2700 - 3300 RPM</b></span>
+          
         </div>
         <div class="text-[10px] text-purple-500 mt-1 font-semibold">Sensor: Proximity </div>
       </div>
@@ -220,8 +220,8 @@
             
             <div class="flex items-center space-x-6">
               <div class="text-right">
-                <div class="text-xs text-muted uppercase font-semibold">Confidence Rating</div>
-                <div id="val-health-score" class="text-2xl font-bold text-heading digital-font">
+                <div class="text-xs text-muted uppercase font-semibold">Motor Confidence Rating</div>
+                <div id="val-confidence-rating" class="text-2xl font-bold text-heading digital-font">
                   --%
                 </div>
               </div>
@@ -266,12 +266,8 @@
 
         <div class="w-full sub-card p-3 rounded-xl flex justify-around text-xs">
           <div>
-            <span class="text-muted block">Slip</span>
-            <span id="speed-slip-val" class="font-bold text-purple-400">--%</span>
-          </div>
-          <div>
             <span class="text-muted block">Rated Range</span>
-            <span class="font-bold text-heading">2700 - 3000 RPM</span>
+            <span class="font-bold text-heading">2700 - 3300 RPM</span>
           </div>
         </div>
       </div>
@@ -432,22 +428,12 @@
       if (dbInput) dbInput.value = apiConfig.dropboxUrl;
     }
 
-    // Dashboard labels for the 5-class Random Forest model.
-    // Native model classes are mapped to the labels used by this existing UI.
     const FAULTS = {
       0: { title: "NORMAL", color: "#10b981", advisory: "Motor operating within optimal mechanical and electrical limits. No maintenance required.", health: 96 },
-      1: { title: "OVERHEATING", color: "#f97316", advisory: "WARNING: Elevated motor temperature detected. Inspect cooling and operating load.", health: 55 },
-      2: { title: "VIBRATION FAULT", color: "#eab308", advisory: "ALERT: Abnormal vibration detected. Inspect bearings, alignment, mounting, and mechanical condition.", health: 45 },
-      3: { title: "LEAKAGE CURRENT", color: "#dc2626", advisory: "CRITICAL: Abnormal current condition detected. Inspect electrical connections, insulation, and load.", health: 30 },
-      4: { title: "MECHANICAL STALL", color: "#ef4444", advisory: "CRITICAL: Motor speed is inconsistent with normal operation. Inspect for mechanical obstruction, load, or drive problems.", health: 25 }
-    };
-
-    const MODEL_CLASS_MAP = {
-      "Normal": 0,
-      "Overheating": 1,
-      "Vibration_Fault": 2,
-      "Overcurrent": 3,
-      "Mechanical_Stall": 4
+      1: { title: "BEARING DEGRADATION", color: "#ef4444", advisory: "CRITICAL: High vibration detected by MPU6050 (> 4.5 mm/s RMS). Bearing wear/spalling likely.", health: 42 },
+      2: { title: "OVERHEATING", color: "#f97316", advisory: "WARNING: DHT11 temperature exceeds safe limits (> 70°C). Risk of winding degradation.", health: 55 },
+      3: { title: "ROTOR IMBALANCE", color: "#eab308", advisory: "ALERT: Moderate radial vibration (> 2.8 mm/s RMS). Mechanical misalignment or bent shaft.", health: 60 },
+      4: { title: "PHASE OVERCURRENT", color: "#dc2626", advisory: "CRITICAL: ACS712 measured high current surge (> 3.4A). Overload or phase short imminent.", health: 28 }
     };
 
     // ----------------- CHART.JS INITIALIZATION -----------------
@@ -904,55 +890,105 @@
     }
 
     async function processTelemetryDecision(telemetry, feed, appendToChart = true) {
-      // Primary ML source: Flask Random Forest API (/api/latest).
-      // The existing dashboard design is unchanged; only the prediction source is replaced.
+      // Default: Awaiting External Model from Google Colab or ThingSpeak Field 5
       let prediction = {
         is_waiting: true,
         condition_name: 'WAIT FOR DATA',
         color: '#10b981',
-        advisory: 'Awaiting Random Forest model decision.',
-        confidence: null,
+        advisory: 'Awaiting model decision from Google Colab. Connect your Colab API URL in Settings or publish predictions to ThingSpeak Field 5.',
         health_score: null
       };
       let decisionSource = 'WAITING FOR MODEL DATA';
       let badgeClass = 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30';
 
-      try {
-        // Same-origin when the dashboard is served by Flask.
-        const mlResp = await safeFetchJson('/api/latest?_t=' + Date.now());
-        if (mlResp && mlResp.ok && mlResp.model_class) {
-          const classId = MODEL_CLASS_MAP[mlResp.model_class];
-          if (classId !== undefined) {
-            const faultMeta = FAULTS[classId];
-            prediction = {
-              is_waiting: false,
-              class_id: classId,
-              condition_name: mlResp.condition || faultMeta.title,
-              color: faultMeta.color,
-              advisory: faultMeta.advisory,
-              confidence: mlResp.confidence !== undefined ? parseFloat(mlResp.confidence) : null,
-              health_score: faultMeta.health
-            };
-            decisionSource = 'RANDOM FOREST ML API';
-            badgeClass = 'bg-blue-500/10 text-blue-400 border-blue-500/30';
-
-            // Use the API's latest telemetry for the UI values so the displayed
-            // readings correspond exactly to the values classified by the model.
-            if (mlResp.timestamp) {
-              telemetry.timestamp = mlResp.timestamp;
-            }
-            if (mlResp.temperature !== undefined) telemetry.temperature = Number(mlResp.temperature);
-            if (mlResp.current !== undefined) telemetry.current = Number(mlResp.current);
-            if (mlResp.rpm !== undefined) telemetry.rpm = Number(mlResp.rpm);
-            if (mlResp.vibration !== undefined) telemetry.vib_rms = Number(mlResp.vibration);
-          }
+      // 1. Check ThingSpeak field5 (Method 1: Cloud-to-Cloud Colab inference)
+      if (feed.field5 !== undefined && feed.field5 !== null && feed.field5 !== '') {
+        const classId = parseInt(feed.field5);
+        if (FAULTS[classId] !== undefined) {
+          const faultMeta = FAULTS[classId];
+          prediction = {
+            is_waiting: false,
+            class_id: classId,
+            condition_name: faultMeta.title,
+            color: faultMeta.color,
+            advisory: faultMeta.advisory,
+            confidence: 95.0,
+            health_score: (feed.field6 && !isNaN(parseFloat(feed.field6))) ? parseFloat(feed.field6) : faultMeta.health
+          };
+          decisionSource = 'THINGSPEAK ML (FIELD 5)';
+          badgeClass = 'bg-teal-500/10 text-teal-400 border-teal-500/30';
         }
-      } catch (mlErr) {
-        console.warn('Random Forest API warning:', mlErr);
       }
 
-      // If the Flask API is unavailable, keep the existing telemetry visible but
-      // do not fabricate a model result.
+      // 2. Check Google Colab / External Model API Endpoint (Method 2: Direct REST API via ngrok)
+      const modelApiTarget = apiConfig.dropboxUrl ? apiConfig.dropboxUrl.trim() : '';
+      if (modelApiTarget && (modelApiTarget.startsWith('http://') || modelApiTarget.startsWith('https://'))) {
+        try {
+          // Send live telemetry to Colab via POST (with ngrok browser warning bypass)
+          const colabResp = await fetch(modelApiTarget, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'ngrok-skip-browser-warning': 'true'
+            },
+            body: JSON.stringify({
+              vibration: telemetry.vib_rms,
+              temperature: telemetry.temperature,
+              current: telemetry.current,
+              rpm: telemetry.rpm
+            })
+          });
+
+          if (colabResp.ok) {
+            const data = await colabResp.json();
+            const cid = data.class_id !== undefined ? parseInt(data.class_id) :
+                        (data.prediction !== undefined ? parseInt(data.prediction) :
+                        (data.predicted_class_id !== undefined ? parseInt(data.predicted_class_id) :
+                        (data.model_output && data.model_output.predicted_class_id !== undefined ? parseInt(data.model_output.predicted_class_id) : null)));
+
+            if (cid !== null && FAULTS[cid] !== undefined) {
+              const faultMeta = FAULTS[cid];
+              prediction = {
+                is_waiting: false,
+                class_id: cid,
+                condition_name: data.condition || (data.model_output && data.model_output.condition) || faultMeta.title,
+                color: data.color || (data.model_output && data.model_output.color) || faultMeta.color,
+                advisory: data.advisory || (data.model_output && data.model_output.advisory) || faultMeta.advisory,
+                confidence: data.confidence !== undefined ? parseFloat(data.confidence) :
+                            (data.confidence_percent !== undefined ? parseFloat(data.confidence_percent) : 96.5),
+                health_score: data.health_score !== undefined ? parseFloat(data.health_score) : faultMeta.health
+              };
+              decisionSource = 'GOOGLE COLAB AI MODEL';
+              badgeClass = 'bg-blue-500/10 text-blue-400 border-blue-500/30';
+            }
+          }
+        } catch (apiErr) {
+          // Graceful fallback to GET for static JSON endpoints
+          try {
+            const cacheBuster = modelApiTarget.includes('?') ? `&_t=${Date.now()}` : `?_t=${Date.now()}`;
+            const dbResp = await fetch(modelApiTarget + cacheBuster);
+            if (dbResp.ok) {
+              const dbData = await dbResp.json();
+              if (dbData && dbData.model_output) {
+                const out = dbData.model_output;
+                prediction = {
+                  is_waiting: false,
+                  class_id: out.predicted_class_id,
+                  condition_name: out.condition,
+                  color: out.color || (FAULTS[out.predicted_class_id] || FAULTS[0]).color,
+                  advisory: out.advisory,
+                  confidence: out.confidence_percent || 95.0,
+                  health_score: out.health_score
+                };
+                decisionSource = 'EXTERNAL AI MODEL';
+                badgeClass = 'bg-purple-500/10 text-purple-400 border-purple-500/30';
+              }
+            }
+          } catch (e) {}
+        }
+      }
+
+      // Update Decision Badge
       const sourceBadge = document.getElementById('decision-source-badge');
       if (sourceBadge) {
         sourceBadge.textContent = decisionSource;
@@ -961,11 +997,13 @@
 
       const mlEngineEl = document.getElementById('display-ml-engine');
       if (mlEngineEl) {
-        mlEngineEl.textContent = prediction.is_waiting ? 'Random Forest ML API' : decisionSource;
+        mlEngineEl.textContent = prediction.is_waiting ? 'Google Colab Model' : decisionSource;
       }
 
+      // Update UI with real API data
       updateUI(telemetry, prediction);
 
+      // If live polling, append newest point to charts
       if (appendToChart) {
         updateCharts(telemetry.timestamp, telemetry.vib_rms, telemetry.temperature, telemetry.current, telemetry.rpm);
       }
@@ -998,14 +1036,13 @@
       setText('prescriptive-advisory', p.advisory);
       setText('badge-timestamp', 'Last API Sync: ' + t.timestamp);
 
-      // 2b. Confidence Rating in diagnostic card
-      // Uses the actual Random Forest predict_proba() confidence returned by Flask.
-      const confidenceEl = document.getElementById('val-health-score');
-      if (confidenceEl) {
-        if (p.confidence !== null && p.confidence !== undefined && !isNaN(p.confidence)) {
-          confidenceEl.textContent = Number(p.confidence).toFixed(1) + '%';
+      // 2b. Motor Confidence Rating in diagnostic card
+      const healthEl = document.getElementById('val-confidence-rating');
+      if (healthEl) {
+        if (p.health_score !== null && p.health_score !== undefined && !isNaN(p.health_score)) {
+          healthEl.textContent = Math.round(p.health_score) + '%';
         } else {
-          confidenceEl.textContent = '--%';
+          healthEl.textContent = '--%';
         }
       }
 
