@@ -929,26 +929,40 @@
       let decisionSource = 'WAITING FOR MODEL DATA';
       let badgeClass = 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30';
 
-      // 1. Check ThingSpeak field5 (Method 1: Cloud-to-Cloud Colab inference)
-      if (feed.field5 !== undefined && feed.field5 !== null && feed.field5 !== '') {
-        const classId = parseInt(feed.field5);
-        if (FAULTS[classId] !== undefined) {
-          const faultMeta = FAULTS[classId];
-          prediction = {
-            is_waiting: false,
-            class_id: classId,
-            condition_name: faultMeta.title,
-            color: faultMeta.color,
-            advisory: faultMeta.advisory,
-            confidence: 95.0,
-            health_score: (feed.field6 && !isNaN(parseFloat(feed.field6))) ? parseFloat(feed.field6) : faultMeta.health
-          };
-          decisionSource = 'THINGSPEAK ML (FIELD 5)';
-          badgeClass = 'bg-teal-500/10 text-teal-400 border-teal-500/30';
+      // 1. Get the Random Forest result from this Flask backend.
+      // ThingSpeak Field 5 is now reserved for HI (%) and Field 6 for HI status.
+      try {
+        const apiResponse = await fetch('/api/latest?_t=' + Date.now(), { cache: 'no-store' });
+        if (apiResponse.ok) {
+          const apiData = await apiResponse.json();
+          if (apiData && apiData.ok) {
+            const modelClassToId = {
+              Normal: 0,
+              Vibration_Fault: 1,
+              Overheating: 2,
+              Mechanical_Stall: 3,
+              Overcurrent: 4
+            };
+            const classId = modelClassToId[apiData.model_class];
+            const faultMeta = FAULTS[classId] || FAULTS[0];
+            prediction = {
+              is_waiting: false,
+              class_id: classId,
+              condition_name: apiData.condition || faultMeta.title,
+              color: faultMeta.color,
+              advisory: faultMeta.advisory,
+              confidence: Number(apiData.confidence),
+              health_score: Number(apiData.confidence)
+            };
+            decisionSource = 'FLASK RANDOM FOREST';
+            badgeClass = 'bg-teal-500/10 text-teal-400 border-teal-500/30';
+          }
         }
+      } catch (backendErr) {
+        console.warn('Flask prediction API unavailable; trying configured external model.', backendErr);
       }
 
-      // 2. Check Google Colab / External Model API Endpoint (Method 2: Direct REST API via ngrok)
+      // 2. Optional Google Colab / External Model API fallback.
       const modelApiTarget = apiConfig.dropboxUrl ? apiConfig.dropboxUrl.trim() : '';
       if (modelApiTarget && (modelApiTarget.startsWith('http://') || modelApiTarget.startsWith('https://'))) {
         try {
