@@ -299,6 +299,34 @@
       </div>
     </div>
 
+
+    <!-- WEIGHTED MOTOR HEALTH INDEX -->
+    <section class="glass-card rounded-2xl p-6" aria-labelledby="health-index-title">
+      <div class="flex flex-wrap items-center justify-between gap-3 mb-5">
+        <div>
+          <h2 id="health-index-title" class="text-lg font-bold tracking-wider uppercase digital-font text-heading">Motor Health Index</h2>
+          <p class="text-xs text-muted mt-1">Weighted sensor-based condition estimate</p>
+        </div>
+        <span id="hi-status" class="px-3 py-1 rounded-full text-xs font-bold bg-slate-500/10 text-muted border border-slate-500/30">WAITING FOR DATA</span>
+      </div>
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-5 items-center">
+        <div class="sub-card rounded-xl p-5 text-center">
+          <div id="hi-value" class="text-5xl font-black digital-font text-heading">--%</div>
+          <div class="text-xs uppercase tracking-widest text-muted mt-2">Health Score</div>
+          <div class="w-full h-2 rounded-full bg-slate-300 dark:bg-slate-700 mt-4 overflow-hidden">
+            <div id="hi-progress" class="h-full rounded-full bg-emerald-500 transition-all duration-500" style="width:0%"></div>
+          </div>
+        </div>
+        <div class="md:col-span-2 grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <div class="sub-card rounded-xl p-3"><div class="text-xs text-muted">Temperature</div><div id="hi-temp-deg" class="text-xl font-bold digital-font text-heading">--</div><div class="text-[10px] text-muted">Degradation</div></div>
+          <div class="sub-card rounded-xl p-3"><div class="text-xs text-muted">Vibration</div><div id="hi-vib-deg" class="text-xl font-bold digital-font text-heading">--</div><div class="text-[10px] text-muted">Degradation</div></div>
+          <div class="sub-card rounded-xl p-3"><div class="text-xs text-muted">Current</div><div id="hi-current-deg" class="text-xl font-bold digital-font text-heading">--</div><div class="text-[10px] text-muted">Degradation</div></div>
+          <div class="sub-card rounded-xl p-3"><div class="text-xs text-muted">RPM</div><div id="hi-rpm-deg" class="text-xl font-bold digital-font text-heading">--</div><div class="text-[10px] text-muted">Degradation</div></div>
+        </div>
+      </div>
+      <p class="text-[11px] text-muted mt-4">Project-configured reference values and limits; this score is an indicative condition estimate, not a certified safety measurement or validated RUL prediction.</p>
+    </section>
+
   </main>
 
   <!-- FOOTER -->
@@ -326,7 +354,7 @@
 
         <div>
           <label class="block text-xs font-bold text-muted uppercase mb-1">READ API KEY</label>
-          <input type="text" id="cfg-key" value="CE38Q1UDCI4AWI3D" placeholder="CE38Q1UDCI4AWI3D" class="w-full bg-slate-100 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg p-2.5 text-sm text-heading focus:outline-none focus:border-emerald-500 font-mono">
+          <input type="text" id="cfg-key" value="" placeholder="Enter your ThingSpeak Read API Key" class="w-full bg-slate-100 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg p-2.5 text-sm text-heading focus:outline-none focus:border-emerald-500 font-mono">
           <p class="text-[11px] text-muted mt-1">Leave empty if your channel is public.</p>
         </div>
 
@@ -409,7 +437,7 @@
     // ----------------- API CREDENTIALS -----------------
     let apiConfig = {
       channelId: getStoredItem('ts_channel_id', '3461983'),
-      readApiKey: getStoredItem('ts_read_api_key', 'CE38Q1UDCI4AWI3D'),
+      readApiKey: getStoredItem('ts_read_api_key', ''),
       dropboxUrl: getStoredItem('ts_dropbox_url', '')
     };
 
@@ -901,26 +929,40 @@
       let decisionSource = 'WAITING FOR MODEL DATA';
       let badgeClass = 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30';
 
-      // 1. Check ThingSpeak field5 (Method 1: Cloud-to-Cloud Colab inference)
-      if (feed.field5 !== undefined && feed.field5 !== null && feed.field5 !== '') {
-        const classId = parseInt(feed.field5);
-        if (FAULTS[classId] !== undefined) {
-          const faultMeta = FAULTS[classId];
-          prediction = {
-            is_waiting: false,
-            class_id: classId,
-            condition_name: faultMeta.title,
-            color: faultMeta.color,
-            advisory: faultMeta.advisory,
-            confidence: 95.0,
-            health_score: (feed.field6 && !isNaN(parseFloat(feed.field6))) ? parseFloat(feed.field6) : faultMeta.health
-          };
-          decisionSource = 'THINGSPEAK ML (FIELD 5)';
-          badgeClass = 'bg-teal-500/10 text-teal-400 border-teal-500/30';
+      // 1. Get the Random Forest result from this Flask backend.
+      // ThingSpeak Field 5 is now reserved for HI (%) and Field 6 for HI status.
+      try {
+        const apiResponse = await fetch('/api/latest?_t=' + Date.now(), { cache: 'no-store' });
+        if (apiResponse.ok) {
+          const apiData = await apiResponse.json();
+          if (apiData && apiData.ok) {
+            const modelClassToId = {
+              Normal: 0,
+              Vibration_Fault: 1,
+              Overheating: 2,
+              Mechanical_Stall: 3,
+              Overcurrent: 4
+            };
+            const classId = modelClassToId[apiData.model_class];
+            const faultMeta = FAULTS[classId] || FAULTS[0];
+            prediction = {
+              is_waiting: false,
+              class_id: classId,
+              condition_name: apiData.condition || faultMeta.title,
+              color: faultMeta.color,
+              advisory: faultMeta.advisory,
+              confidence: Number(apiData.confidence),
+              health_score: Number(apiData.confidence)
+            };
+            decisionSource = 'FLASK RANDOM FOREST';
+            badgeClass = 'bg-teal-500/10 text-teal-400 border-teal-500/30';
+          }
         }
+      } catch (backendErr) {
+        console.warn('Flask prediction API unavailable; trying configured external model.', backendErr);
       }
 
-      // 2. Check Google Colab / External Model API Endpoint (Method 2: Direct REST API via ngrok)
+      // 2. Optional Google Colab / External Model API fallback.
       const modelApiTarget = apiConfig.dropboxUrl ? apiConfig.dropboxUrl.trim() : '';
       if (modelApiTarget && (modelApiTarget.startsWith('http://') || modelApiTarget.startsWith('https://'))) {
         try {
@@ -1009,7 +1051,50 @@
       }
     }
 
+
+    // ----------------- WEIGHTED HEALTH INDEX -----------------
+    // Keep these values synchronized with health_index.py.
+    function calculateHealthIndex(t) {
+      const clip = value => Math.max(0, Math.min(1, value));
+      const degradation = {
+        temperature: clip((t.temperature - 32.0) / (76.0 - 32.0)),
+        vibration: clip((t.vib_rms - 2.9) / (4.5 - 2.9)),
+        current: clip((t.current - 0.28) / (0.39 - 0.28)),
+        rpm: clip(Math.abs(t.rpm - 3000.0) / 300.0)
+      };
+      const weighted = 0.2420 * degradation.temperature
+                     + 0.2653 * degradation.vibration
+                     + 0.2698 * degradation.current
+                     + 0.2229 * degradation.rpm;
+      const hi = clip(1.0 - weighted);
+      const status = hi > 0.7 ? "GOOD" : (hi > 0.4 ? "MODERATE" : "BAD");
+
+      setText('hi-value', (hi * 100).toFixed(1) + '%');
+      setText('hi-status', status);
+      setWidth('hi-progress', (hi * 100).toFixed(1) + '%');
+
+      const statusEl = document.getElementById('hi-status');
+      const progressEl = document.getElementById('hi-progress');
+      if (statusEl) {
+        const classes = {
+          GOOD: 'px-3 py-1 rounded-full text-xs font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/30',
+          MODERATE: 'px-3 py-1 rounded-full text-xs font-bold bg-amber-500/10 text-amber-400 border border-amber-500/30',
+          BAD: 'px-3 py-1 rounded-full text-xs font-bold bg-rose-500/10 text-rose-400 border border-rose-500/30'
+        };
+        statusEl.className = classes[status];
+      }
+      if (progressEl) {
+        progressEl.className = 'h-full rounded-full transition-all duration-500 ' +
+          (status === 'GOOD' ? 'bg-emerald-500' : status === 'MODERATE' ? 'bg-amber-500' : 'bg-rose-500');
+      }
+      setText('hi-temp-deg', (degradation.temperature * 100).toFixed(1) + '%');
+      setText('hi-vib-deg', (degradation.vibration * 100).toFixed(1) + '%');
+      setText('hi-current-deg', (degradation.current * 100).toFixed(1) + '%');
+      setText('hi-rpm-deg', (degradation.rpm * 100).toFixed(1) + '%');
+    }
+
     function updateUI(t, p) {
+      calculateHealthIndex(t);
       // 1. Sensor Readings
       setText('val-vib-rms', t.vib_rms.toFixed(2));
       setText('val-ax', t.vib_x.toFixed(2));
