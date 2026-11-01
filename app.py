@@ -54,50 +54,6 @@ def get_latest_thingspeak():
     return feed
 
 
-def publish_health_index(feed, hi_result):
-    """Publish sensor fields plus HI/status to the same ThingSpeak channel.
-
-    ThingSpeak creates a new feed entry for every update. Repeating fields 1-4
-    preserves the sensor sample when fields 5-6 are added. A feed that already
-    contains both HI fields is treated as processed, preventing a write loop.
-    """
-    global _last_published_sensor_entry_id
-
-    if not THINGSPEAK_HI_CHANNEL_ID or not THINGSPEAK_HI_WRITE_KEY:
-        return {"published": False, "reason": "HI output channel credentials are not configured"}
-
-    source_entry_id = str(feed.get("entry_id", ""))
-    if not source_entry_id:
-        return {"published": False, "reason": "Sensor feed has no entry_id"}
-
-    if source_entry_id == _last_published_sensor_entry_id:
-        return {"published": False, "reason": "This sensor entry was already processed"}
-
-    status_codes = {"GOOD": 1, "MODERATE": 2, "BAD": 3}
-    payload = {
-        "api_key": THINGSPEAK_HI_WRITE_KEY,
-        "field4": source_entry_id,
-        "field5": hi_result["health_percentage"],
-        "field6": status_codes[hi_result["health_status"]],
-    }
-
-    response = requests.post(
-        "https://api.thingspeak.com/update.json",
-        data=payload,
-        timeout=10,
-    )
-    response.raise_for_status()
-    entry_id = response.json()
-
-    # ThingSpeak returns 0 when it rejects an update (for example, due to
-    # its channel write-rate limit).
-    if not entry_id:
-        return {"published": False, "reason": "ThingSpeak rejected the HI write; check the output channel update interval"}
-
-    _last_published_sensor_entry_id = source_entry_id
-    return {"published": True, "entry_id": entry_id}
-
-
 def make_prediction(feed):
     # ThingSpeak mapping used by the deployed Random Forest:
     # field1=temperature, field2=vibration, field3=current, field4=RPM.
@@ -124,7 +80,6 @@ def make_prediction(feed):
     confidence = float(probabilities[class_index] * 100.0)
 
     hi_result = calculate_health_index(temperature, vibration, current, rpm)
-    publish_result = publish_health_index(feed, hi_result)
 
     return {
         "ok": True,
@@ -138,9 +93,6 @@ def make_prediction(feed):
         "rpm": rpm,
         "entry_id": feed.get("entry_id"),
         "timestamp": feed.get("created_at"),
-        "thingspeak_hi_published": publish_result["published"],
-        "thingspeak_hi_publish_reason": publish_result.get("reason"),
-        "thingspeak_hi_entry_id": publish_result.get("entry_id"),
         **hi_result,
     }
 
