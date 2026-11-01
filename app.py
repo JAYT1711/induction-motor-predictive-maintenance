@@ -4,6 +4,7 @@ import pandas as pd
 import requests
 import os
 from pathlib import Path
+from health_index import calculate_health_index
 
 BASE_DIR = Path(__file__).resolve().parent
 app = Flask(__name__)
@@ -51,12 +52,18 @@ def get_latest_thingspeak():
 
 
 def make_prediction(feed):
-    temperature = float(feed.get("field1") or 0)
-    vibration = float(feed.get("field2") or 0)
-    current = float(feed.get("field3") or 0)
-    rpm = float(feed.get("field4") or 0)
+    # ThingSpeak mapping used by the deployed Random Forest:
+    # field1=temperature, field2=vibration, field3=current, field4=RPM.
+    required_fields = ["field1", "field2", "field3", "field4"]
+    if any(feed.get(field) in (None, "") for field in required_fields):
+        raise ValueError("Latest ThingSpeak feed is missing one or more sensor fields.")
 
-    # IMPORTANT: this order and these names match model_Random_Forest_final3(1).joblib.
+    temperature = float(feed["field1"])
+    vibration = float(feed["field2"])
+    current = float(feed["field3"])
+    rpm = float(feed["field4"])
+
+    # Keep the existing Random Forest feature names and order unchanged.
     X = pd.DataFrame([{
         "Temperature_C": temperature,
         "Current_A": current,
@@ -68,6 +75,8 @@ def make_prediction(feed):
     probabilities = model.predict_proba(X)[0]
     class_index = list(model.classes_).index(predicted_class)
     confidence = float(probabilities[class_index] * 100.0)
+
+    hi_result = calculate_health_index(temperature, vibration, current, rpm)
 
     return {
         "ok": True,
@@ -81,6 +90,7 @@ def make_prediction(feed):
         "rpm": rpm,
         "entry_id": feed.get("entry_id"),
         "timestamp": feed.get("created_at"),
+        **hi_result,
     }
 
 
@@ -106,16 +116,17 @@ def latest_prediction():
 def health():
     return jsonify({
         "ok": True,
-        "service": "Induction Motor Random Forest API",
+        "service": "Induction Motor Predictive Maintenance API",
         "model": MODEL_PATH.name,
         "channel_id": CHANNEL_ID,
+        "health_index_enabled": True,
     })
 
 
 if __name__ == "__main__":
     port = int(os.getenv("PORT", "5000"))
     print("\n==============================================")
-    print("  INDUCTION MOTOR ML DASHBOARD + API")
+    print("  INDUCTION MOTOR ML + HEALTH INDEX DASHBOARD")
     print("==============================================\n")
     print(f"Dashboard: http://127.0.0.1:{port}/")
     print(f"API:       http://127.0.0.1:{port}/api/latest")
