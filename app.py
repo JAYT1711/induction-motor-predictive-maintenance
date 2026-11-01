@@ -82,7 +82,7 @@ def publish_health_index(feed, hi_result):
     }
 
     response = requests.post(
-        f"https://api.thingspeak.com/update.json?channel_id={THINGSPEAK_HI_CHANNEL_ID}",
+        "https://api.thingspeak.com/update.json",
         data=payload,
         timeout=10,
     )
