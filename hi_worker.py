@@ -6,6 +6,7 @@ Run as a Render Background Worker:
 The worker reads the latest sensor sample, calculates HI, and publishes it
 to a separate ThingSpeak output channel. It never switches motor power.
 """
+import sys
 import os
 import time
 from datetime import datetime, timezone
@@ -49,8 +50,15 @@ def is_fresh(feed):
 
 
 def get_last_published_source_id():
+    params = {}
+    hi_read_key = os.getenv("THINGSPEAK_HI_READ_KEY", "")
+
+    if hi_read_key:
+        params["api_key"] = hi_read_key
+
     response = session.get(
         f"{BASE}/channels/{HI_CHANNEL_ID}/feeds/last.json",
+        params=params,
         timeout=15,
     )
     response.raise_for_status()
@@ -107,10 +115,18 @@ def main():
         raise SystemExit(
             "Set THINGSPEAK_HI_CHANNEL_ID and THINGSPEAK_HI_WRITE_KEY."
         )
+
     print(
-        f"[START] HI worker polling every {POLL_SECONDS}s; "
+        f"[START] HI worker; "
         f"sensor channel={SENSOR_CHANNEL_ID}; output channel={HI_CHANNEL_ID}"
     )
+
+    # GitHub Actions runs the worker once and exits.
+    if "--once" in sys.argv:
+        process_once()
+        return
+
+    # Continuous mode, for local testing or a background worker.
     while True:
         try:
             process_once()
