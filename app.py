@@ -11,6 +11,7 @@ app = Flask(__name__)
 
 CHANNEL_ID = os.getenv("THINGSPEAK_CHANNEL_ID", "3461983")
 THINGSPEAK_READ_KEY = os.getenv("THINGSPEAK_READ_KEY", "")
+THINGSPEAK_WRITE_KEY = os.getenv("THINGSPEAK_WRITE_KEY", "")
 MODEL_PATH = BASE_DIR / "model_Random_Forest_final3(1).joblib"
 
 LABEL_MAP = {
@@ -51,6 +52,46 @@ def get_latest_thingspeak():
     return feed
 
 
+def publish_health_index(feed, hi_result):
+    """Publish sensor fields plus HI/status to the same ThingSpeak channel.
+
+    ThingSpeak creates a new feed entry for every update. Repeating fields 1-4
+    preserves the sensor sample when fields 5-6 are added. A feed that already
+    contains both HI fields is treated as processed, preventing a write loop.
+    """
+    if not THINGSPEAK_WRITE_KEY:
+        return {"published": False, "reason": "THINGSPEAK_WRITE_KEY is not configured"}
+
+    if feed.get("field5") not in (None, "") and feed.get("field6") not in (None, ""):
+        return {"published": False, "reason": "HI already exists for this feed"}
+
+    status_codes = {"GOOD": 1, "MODERATE": 2, "BAD": 3}
+    payload = {
+        "api_key": THINGSPEAK_WRITE_KEY,
+        "field1": feed["field1"],
+        "field2": feed["field2"],
+        "field3": feed["field3"],
+        "field4": feed["field4"],
+        "field5": hi_result["health_percentage"],
+        "field6": status_codes[hi_result["health_status"]],
+    }
+
+    response = requests.post(
+        "https://api.thingspeak.com/update.json",
+        data=payload,
+        timeout=10,
+    )
+    response.raise_for_status()
+    entry_id = response.json()
+
+    # ThingSpeak returns 0 when it rejects an update (for example, due to
+    # its channel write-rate limit).
+    if not entry_id:
+        return {"published": False, "reason": "ThingSpeak rejected the write; check its update interval"}
+
+    return {"published": True, "entry_id": entry_id}
+
+
 def make_prediction(feed):
     # ThingSpeak mapping used by the deployed Random Forest:
     # field1=temperature, field2=vibration, field3=current, field4=RPM.
@@ -77,6 +118,7 @@ def make_prediction(feed):
     confidence = float(probabilities[class_index] * 100.0)
 
     hi_result = calculate_health_index(temperature, vibration, current, rpm)
+    publish_result = publish_health_index(feed, hi_result)
 
     return {
         "ok": True,
@@ -90,6 +132,9 @@ def make_prediction(feed):
         "rpm": rpm,
         "entry_id": feed.get("entry_id"),
         "timestamp": feed.get("created_at"),
+        "thingspeak_hi_published": publish_result["published"],
+        "thingspeak_hi_publish_reason": publish_result.get("reason"),
+        "thingspeak_hi_entry_id": publish_result.get("entry_id"),
         **hi_result,
     }
 
@@ -120,6 +165,7 @@ def health():
         "model": MODEL_PATH.name,
         "channel_id": CHANNEL_ID,
         "health_index_enabled": True,
+        "thingspeak_write_configured": bool(THINGSPEAK_WRITE_KEY),
     })
 
 
