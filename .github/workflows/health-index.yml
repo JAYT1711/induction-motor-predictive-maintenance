@@ -1,0 +1,38 @@
+name: Update Motor Health Index
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  update-health-index:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests
+
+      - name: Calculate and publish Health Index
+        env:
+          THINGSPEAK_CHANNEL_ID: ${{ secrets.THINGSPEAK_CHANNEL_ID }}
+          THINGSPEAK_READ_KEY: ${{ secrets.THINGSPEAK_READ_KEY }}
+          THINGSPEAK_HI_CHANNEL_ID: ${{ secrets.THINGSPEAK_HI_CHANNEL_ID }}
+          THINGSPEAK_HI_WRITE_KEY: ${{ secrets.THINGSPEAK_HI_WRITE_KEY }}
+          THINGSPEAK_HI_READ_KEY: ${{ secrets.THINGSPEAK_HI_READ_KEY }}
+          SENSOR_MAX_AGE_SECONDS: "600"
+        run: python hi_worker.py --once
